@@ -1,6 +1,8 @@
 FROM amazon/aws-for-fluent-bit:build as builder
 COPY ./scripts/dockerfiles/Dockerfile.build /Dockerfile.1.build
 
+COPY ./edge-ai /edge-ai
+
 # Build Fluent Bit with release compiler flags
 RUN cmake -DFLB_RELEASE=On \
           -DFLB_TRACE=Off \
@@ -11,6 +13,8 @@ RUN cmake -DFLB_RELEASE=On \
           -DFLB_HTTP_SERVER=On \
           -DFLB_IN_SYSTEMD=On \
           -DFLB_OUT_KAFKA=On \
+          -DFLB_FILTER_TENSORFLOW=On \
+          -DTensorflow_DIR=/edge-ai/tensorflow \
           -DFLB_ARROW=On ..
 
 RUN make -j $(getconf _NPROCESSORS_ONLN)
@@ -31,6 +35,9 @@ COPY --from=builder /fluent-bit /fluent-bit
 COPY --from=aws-fluent-bit-plugins:latest /kinesis-streams/bin/kinesis.so /fluent-bit/kinesis.so
 COPY --from=aws-fluent-bit-plugins:latest /kinesis-firehose/bin/firehose.so /fluent-bit/firehose.so
 COPY --from=aws-fluent-bit-plugins:latest /cloudwatch/bin/cloudwatch.so /fluent-bit/cloudwatch.so
+COPY --from=builder /edge-ai/lstm /edge-ai/lstm
+COPY --from=builder /edge-ai/shared /edge-ai/shared
+COPY --from=builder /edge-ai/lua /edge-ai/lua
 RUN mkdir -p /fluent-bit/licenses/fluent-bit
 RUN mkdir -p /fluent-bit/licenses/firehose
 RUN mkdir -p /fluent-bit/licenses/cloudwatch
@@ -53,6 +60,14 @@ RUN chmod +x /entrypoint.sh
 
 # Optional Metrics endpoint
 EXPOSE 2020
+
+# Load the tensorflow lite library
+# If we really wanted to, we could also build this library from source:
+1. Obtain source tensorflow files
+2. Install Bazel builder, suggested through the npm distribution
+3. Compile a c shared lib from source code following: https://docs.fluentbit.io/manual/pipeline/filters/tensorflow and https://www.tensorflow.org/lite/guide/build_cmake
+4. These steps were done on an ec2 instance running amazon linux
+ENV LD_LIBRARY_PATH /edge-ai/shared/libtensorflowlite_c.2.15.0
 
 # Entry point
 CMD /entrypoint.sh
